@@ -32,6 +32,7 @@ public class RepositoryService {
     private final SearchHistoryRepository searchHistoryRepository;
     private final GitHubService gitHubService;
     private final AnalysisEngineService analysisEngineService;
+    private final AIAnalysisService aiAnalysisService;
     private final ObjectMapper objectMapper;
 
     public RepositoryService(RepositoryRepository repositoryRepository,
@@ -39,12 +40,14 @@ public class RepositoryService {
                              SearchHistoryRepository searchHistoryRepository,
                              GitHubService gitHubService,
                              AnalysisEngineService analysisEngineService,
+                             AIAnalysisService aiAnalysisService,
                              ObjectMapper objectMapper) {
         this.repositoryRepository = repositoryRepository;
         this.analysisRepository = analysisRepository;
         this.searchHistoryRepository = searchHistoryRepository;
         this.gitHubService = gitHubService;
         this.analysisEngineService = analysisEngineService;
+        this.aiAnalysisService = aiAnalysisService;
         this.objectMapper = objectMapper;
     }
 
@@ -68,18 +71,39 @@ public class RepositoryService {
                 metadata, contributors, releases, commits, pulls, issues
         );
 
-        // 3. Find or create user-scoped Repository record
-        Repository repository = repositoryRepository.findByUserAndFullNameIgnoreCase(user, fullName)
-                .orElseGet(() -> Repository.builder()
+        // 3. Find or create user-scoped Repository record with concurrency locking
+        Repository repository = null;
+        String lockKey = (user != null && user.getId() != null ? user.getId() : "anon") + ":" + fullName;
+        synchronized (lockKey.intern()) {
+            repository = repositoryRepository.findByUserAndFullNameIgnoreCase(user, fullName)
+                    .orElse(null);
+
+            if (repository == null) {
+                repository = repositoryRepository.findByUserAndOwnerIgnoreCaseAndNameIgnoreCase(user, cleanOwner, cleanName)
+                        .orElse(null);
+            }
+
+            if (repository == null) {
+                Repository newRepo = Repository.builder()
                         .user(user)
                         .owner(cleanOwner)
                         .name(cleanName)
                         .fullName(fullName)
-                        .build());
-
-        populateRepositoryDetails(repository, metadata, fullName);
-
-        Repository savedRepository = repositoryRepository.save(repository);
+                        .build();
+                populateRepositoryDetails(newRepo, metadata, fullName);
+                try {
+                    repository = repositoryRepository.saveAndFlush(newRepo);
+                } catch (Exception ex) {
+                    log.info("Handled concurrent insertion collision for repository {}: {}", fullName, ex.getMessage());
+                    repository = repositoryRepository.findByUserAndFullNameIgnoreCase(user, fullName)
+                            .orElse(newRepo);
+                }
+            } else {
+                populateRepositoryDetails(repository, metadata, fullName);
+                repository = repositoryRepository.save(repository);
+            }
+        }
+        Repository savedRepository = repository;
 
         // 4. Create and persist new Analysis record automatically
         String rawJson = null;
@@ -119,6 +143,28 @@ public class RepositoryService {
                 .rawAnalysisJson(rawJson)
                 .analyzedAt(LocalDateTime.now())
                 .build();
+
+        // Optional Qualitative AI Insights via Google Gemini (guaranteed not to break pipeline)
+        try {
+            com.openinfra.backend.dto.AIInsightsResponse aiInsights = aiAnalysisService.generateRepositoryInsights(
+                    savedRepository, analysisResult, issues, pulls
+            );
+            if (aiInsights != null && Boolean.TRUE.equals(aiInsights.getIsAiAvailable())) {
+                analysis.setAiSummary(aiInsights.getExecutiveSummary());
+                analysis.setAiArchitecturalAssessment(aiInsights.getArchitecturalAssessment());
+                analysis.setAiRiskAssessment(aiInsights.getRiskAnalysis());
+                analysis.setAiAdoptionVerdict(aiInsights.getAdoptionVerdict());
+                analysis.setAiCommunitySentiment(aiInsights.getCommunitySentiment());
+                analysis.setAiGeneratedAt(LocalDateTime.now());
+                if (aiInsights.getRecommendations() != null) {
+                    analysis.setAiRecommendationsJson(objectMapper.writeValueAsString(aiInsights.getRecommendations()));
+                }
+                analysis.setAiInsightsJson(objectMapper.writeValueAsString(aiInsights));
+                analysisResult.put("aiInsights", aiInsights);
+            }
+        } catch (Exception e) {
+            log.warn("Non-fatal AI insights generation skipped: {}", e.getMessage());
+        }
 
         RepositoryAnalysis savedAnalysis = analysisRepository.save(analysis);
 

@@ -32,6 +32,16 @@ public class AnalysisResponse {
     private String adoptionRecommendation;
     private String adoptionVerdict;
 
+    // AI Repository Intelligence Fields (Google Gemini)
+    private String aiSummary;
+    private String aiArchitecturalAssessment;
+    private String aiRiskAssessment;
+    private String aiAdoptionVerdict;
+    private String aiCommunitySentiment;
+    private JsonNode aiRecommendations;
+    private JsonNode aiInsights;
+    private LocalDateTime aiGeneratedAt;
+
     private JsonNode rawAssessment;
     private LocalDateTime analyzedAt;
     private LocalDateTime createdAt;
@@ -43,6 +53,22 @@ public class AnalysisResponse {
         if (analysis.getRawAnalysisJson() != null && !analysis.getRawAnalysisJson().isBlank()) {
             try {
                 parsedRaw = objectMapper.readTree(analysis.getRawAnalysisJson());
+            } catch (Exception ignored) {
+            }
+        }
+
+        JsonNode parsedAiRecommendations = null;
+        if (analysis.getAiRecommendationsJson() != null && !analysis.getAiRecommendationsJson().isBlank()) {
+            try {
+                parsedAiRecommendations = objectMapper.readTree(analysis.getAiRecommendationsJson());
+            } catch (Exception ignored) {
+            }
+        }
+
+        JsonNode parsedAiInsights = null;
+        if (analysis.getAiInsightsJson() != null && !analysis.getAiInsightsJson().isBlank()) {
+            try {
+                parsedAiInsights = objectMapper.readTree(analysis.getAiInsightsJson());
             } catch (Exception ignored) {
             }
         }
@@ -64,6 +90,14 @@ public class AnalysisResponse {
                 .popularityTier(analysis.getPopularityTier())
                 .adoptionRecommendation(analysis.getAdoptionRecommendation())
                 .adoptionVerdict(analysis.getAdoptionVerdict())
+                .aiSummary(analysis.getAiSummary())
+                .aiArchitecturalAssessment(analysis.getAiArchitecturalAssessment())
+                .aiRiskAssessment(analysis.getAiRiskAssessment())
+                .aiAdoptionVerdict(analysis.getAiAdoptionVerdict())
+                .aiCommunitySentiment(analysis.getAiCommunitySentiment())
+                .aiRecommendations(parsedAiRecommendations)
+                .aiInsights(parsedAiInsights)
+                .aiGeneratedAt(analysis.getAiGeneratedAt())
                 .rawAssessment(parsedRaw)
                 .analyzedAt(analysis.getAnalyzedAt())
                 .createdAt(analysis.getCreatedAt())

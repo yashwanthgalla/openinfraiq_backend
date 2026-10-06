@@ -105,6 +105,31 @@ public class RepositoryAnalysis {
     @Column(name = "raw_analysis_json", columnDefinition = "LONGTEXT")
     private String rawAnalysisJson;
 
+    // AI Repository Intelligence (Google Gemini qualitative layer)
+    @Column(name = "ai_summary", columnDefinition = "TEXT")
+    private String aiSummary;
+
+    @Column(name = "ai_architectural_assessment", columnDefinition = "TEXT")
+    private String aiArchitecturalAssessment;
+
+    @Column(name = "ai_risk_assessment", columnDefinition = "TEXT")
+    private String aiRiskAssessment;
+
+    @Column(name = "ai_adoption_verdict", columnDefinition = "TEXT")
+    private String aiAdoptionVerdict;
+
+    @Column(name = "ai_community_sentiment", columnDefinition = "TEXT")
+    private String aiCommunitySentiment;
+
+    @Column(name = "ai_recommendations_json", columnDefinition = "LONGTEXT")
+    private String aiRecommendationsJson;
+
+    @Column(name = "ai_insights_json", columnDefinition = "LONGTEXT")
+    private String aiInsightsJson;
+
+    @Column(name = "ai_generated_at")
+    private LocalDateTime aiGeneratedAt;
+
     @Column(name = "analyzed_at", nullable = false)
     private LocalDateTime analyzedAt;
 

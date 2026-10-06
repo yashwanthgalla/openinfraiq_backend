@@ -40,6 +40,8 @@ public class SecurityConfig {
                                 "/error",
                                 "/actuator/**"
                         ).permitAll()
+                        // All AI features strictly require authenticated users (logged in with registered account)
+                        .requestMatchers("/api/ai/**").authenticated()
                         // All protected endpoints strictly require valid Firebase authentication
                         .requestMatchers(
                                 "/api/repositories/**",

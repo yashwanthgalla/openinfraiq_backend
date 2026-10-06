@@ -146,6 +146,41 @@ public class GitHubService {
                 new ParameterizedTypeReference<List<RawGitHubIssue>>() {});
     }
 
+    public List<RawGitHubRepo> searchRepositories(String query, int limit) {
+        if (query == null || query.isBlank()) {
+            return Collections.emptyList();
+        }
+        int count = Math.max(1, Math.min(limit, 30));
+        try {
+            String encodedQuery = java.net.URLEncoder.encode(query.trim(), java.nio.charset.StandardCharsets.UTF_8);
+            RawGitHubSearchResult result = executeGet(
+                    "/search/repositories?q=" + encodedQuery + "&sort=stars&order=desc&per_page=" + count,
+                    RawGitHubSearchResult.class
+            );
+            return result != null && result.getItems() != null ? result.getItems() : Collections.emptyList();
+        } catch (Exception e) {
+            log.warn("GitHub repository search query '{}' failed: {}", query, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    public String fetchReadme(String owner, String repo) {
+        try {
+            HttpHeaders headers = createHeaders();
+            headers.set("Accept", "application/vnd.github.v3.raw");
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+            String url = "https://api.github.com/repos/" + owner + "/" + repo + "/readme";
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                String body = response.getBody();
+                return body.length() > 8192 ? body.substring(0, 8192) + "... [truncated]" : body;
+            }
+        } catch (Exception e) {
+            log.debug("Readme fetch skipped or not found for {}/{}: {}", owner, repo, e.getMessage());
+        }
+        return "";
+    }
+
     // -------------------------------------------------------------------------
     // Internal DTOs representing GitHub REST API v3 Responses
     // -------------------------------------------------------------------------
@@ -282,5 +317,16 @@ public class GitHubService {
         private String closedAt;
         @JsonProperty("pull_request")
         private Object pullRequest;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class RawGitHubSearchResult {
+        @JsonProperty("total_count")
+        private Integer totalCount;
+        private List<RawGitHubRepo> items;
     }
 }
