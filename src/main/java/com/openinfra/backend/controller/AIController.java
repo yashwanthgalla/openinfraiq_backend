@@ -18,6 +18,7 @@ import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -262,11 +263,26 @@ public class AIController {
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getSavedSearches(
             @AuthenticationPrincipal FirebaseUserPrincipal principal
     ) {
-        if (principal == null || principal.getUser() == null) {
+        if (principal == null) {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required to view saved searches"));
         }
 
-        List<ProjectRequirement> list = projectRequirementRepository.findByUserOrderByCreatedAtDesc(principal.getUser());
+        User user = null;
+        if (principal.getUser() != null && principal.getUser().getId() != null) {
+            user = userRepository.findById(principal.getUser().getId()).orElse(null);
+        }
+        if (user == null && principal.getFirebaseUid() != null) {
+            user = userRepository.findByFirebaseUid(principal.getFirebaseUid()).orElse(null);
+        }
+        if (user == null) {
+            user = principal.getUser();
+        }
+
+        if (user == null) {
+            return ResponseEntity.ok(ApiResponse.ok(new ArrayList<>()));
+        }
+
+        List<ProjectRequirement> list = projectRequirementRepository.findByUserOrderByCreatedAtDesc(user);
         List<Map<String, Object>> response = new ArrayList<>();
         for (ProjectRequirement pr : list) {
             Map<String, Object> map = new LinkedHashMap<>();
@@ -294,8 +310,23 @@ public class AIController {
             @AuthenticationPrincipal FirebaseUserPrincipal principal,
             @RequestBody Map<String, Object> body
     ) {
-        if (principal == null || principal.getUser() == null) {
+        if (principal == null) {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required to save searches"));
+        }
+
+        User user = null;
+        if (principal.getUser() != null && principal.getUser().getId() != null) {
+            user = userRepository.findById(principal.getUser().getId()).orElse(null);
+        }
+        if (user == null && principal.getFirebaseUid() != null) {
+            user = userRepository.findByFirebaseUid(principal.getFirebaseUid()).orElse(null);
+        }
+        if (user == null) {
+            user = principal.getUser();
+        }
+
+        if (user == null) {
+            return ResponseEntity.status(401).body(ApiResponse.error("User account not found"));
         }
 
         String description = (String) body.get("description");
@@ -320,7 +351,7 @@ public class AIController {
         } catch (Exception ignored) {}
 
         ProjectRequirement pr = ProjectRequirement.builder()
-                .user(principal.getUser())
+                .user(user)
                 .title(title != null && !title.isBlank() ? title : (description.length() > 50 ? description.substring(0, 50) + "..." : description))
                 .description(description)
                 .category(category)
@@ -337,16 +368,47 @@ public class AIController {
         )));
     }
 
+    @Transactional
     @DeleteMapping("/searches/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteSavedSearch(
             @AuthenticationPrincipal FirebaseUserPrincipal principal,
             @PathVariable Long id
     ) {
-        if (principal == null || principal.getUser() == null) {
+        if (principal == null) {
             return ResponseEntity.status(401).body(ApiResponse.error("Authentication required"));
         }
 
-        projectRequirementRepository.deleteByIdAndUser(id, principal.getUser());
+        User user = null;
+        if (principal.getUser() != null && principal.getUser().getId() != null) {
+            user = userRepository.findById(principal.getUser().getId()).orElse(null);
+        }
+        if (user == null && principal.getFirebaseUid() != null) {
+            user = userRepository.findByFirebaseUid(principal.getFirebaseUid()).orElse(null);
+        }
+
+        Optional<ProjectRequirement> requirement = projectRequirementRepository.findById(id);
+        if (requirement.isPresent()) {
+            ProjectRequirement req = requirement.get();
+            boolean isAuthorized = false;
+            if (req.getUser() != null) {
+                if (user != null && user.getId() != null && user.getId().equals(req.getUser().getId())) {
+                    isAuthorized = true;
+                } else if (principal.getFirebaseUid() != null && principal.getFirebaseUid().equals(req.getUser().getFirebaseUid())) {
+                    isAuthorized = true;
+                }
+            } else {
+                isAuthorized = true;
+            }
+
+            if (isAuthorized) {
+                projectRequirementRepository.delete(req);
+                projectRequirementRepository.flush();
+                log.info("Successfully deleted saved project requirement ID {} from database", id);
+            } else {
+                return ResponseEntity.status(403).body(ApiResponse.error("Not authorized to delete this search"));
+            }
+        }
+
         return ResponseEntity.ok(ApiResponse.ok("Saved search deleted", null));
     }
 }
